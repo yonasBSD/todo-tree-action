@@ -68,10 +68,29 @@ install_todo_tree() {
         exit 1
     fi
 
-    # Find the binary
+    # Find the binary (search recursively)
+    # First try exact match, then with prefix
     TODO_BINARY=$(find "$TMP_DIR" -type f -name "todo-tree" | head -n 1)
     if [ -z "$TODO_BINARY" ]; then
+        TODO_BINARY=$(find "$TMP_DIR" -type f -name "todo-tree-*" | head -n 1)
+    fi
+
+    # Also try to find any executable file as last resort
+    if [ -z "$TODO_BINARY" ]; then
+        TODO_BINARY=$(find "$TMP_DIR" -type f -executable | head -n 1)
+    fi
+
+    if [ -z "$TODO_BINARY" ]; then
         log_error "todo-tree binary not found in the archive"
+        log_error "Archive contents:"
+        find "$TMP_DIR" -type f
+        exit 1
+    fi
+
+    log_info "Found binary at: $TODO_BINARY"
+
+    if [ ! -f "$TODO_BINARY" ]; then
+        log_error "Binary path exists but is not a file: $TODO_BINARY"
         exit 1
     fi
 
@@ -79,6 +98,13 @@ install_todo_tree() {
 
     # Copy to current working directory
     cp "$TODO_BINARY" ./todo-tree
+
+    if [ ! -f "./todo-tree" ]; then
+        log_error "Failed to copy binary to current directory"
+        exit 1
+    fi
+
+    chmod +x ./todo-tree
     log_success "todo-tree installed successfully"
 }
 
