@@ -91,7 +91,30 @@ scan_todos() {
             if [ -f "$file" ]; then
                 log_info "Scanning: $file"
                 local result
-                result=$($cmd "$file" 2>/dev/null || echo '{"files":[],"summary":{"total":0}}')
+                result=$($cmd "$file" 2>/dev/null || echo '{"files":[],"summary":{"total_count":0}}')
+
+                # Transform the result to match expected format
+                result=$(echo "$result" | jq '{
+                    files: [
+                        .files[] | {
+                            path: .path,
+                            todos: [
+                                .items[] | {
+                                    tag: .tag,
+                                    text: .message,
+                                    line: .line,
+                                    column: .column,
+                                    line_content: .line_content,
+                                    priority: .priority
+                                }
+                            ]
+                        }
+                    ],
+                    summary: {
+                        total: .summary.total_count,
+                        by_tag: .summary.tag_counts
+                    }
+                }')
 
                 # Extract files array and merge
                 local file_todos
@@ -110,7 +133,35 @@ scan_todos() {
     else
         # Scan entire path
         log_info "Scanning path: ${scan_path:-.}"
-        $cmd "${scan_path:-.}" > todos.json 2>/dev/null || echo '{"files":[],"summary":{"total":0}}' > todos.json
+        $cmd "${scan_path:-.}" > todos_raw.json 2>/dev/null || echo '{"files":[],"summary":{"total":0}}' > todos_raw.json
+        
+        # Transform the JSON to match expected format
+        # Binary returns: .summary.total_count, .files[].items, .items[].message
+        # Script expects: .summary.total, .files[].todos, .todos[].text
+        jq '{
+            files: [
+                .files[] | {
+                    path: .path,
+                    todos: [
+                        .items[] | {
+                            tag: .tag,
+                            text: .message,
+                            line: .line,
+                            column: .column,
+                            line_content: .line_content,
+                            priority: .priority
+                        }
+                    ]
+                }
+            ],
+            summary: {
+                total: .summary.total_count,
+                by_tag: .summary.tag_counts,
+                files_with_todos: .summary.files_with_todos
+            }
+        }' todos_raw.json > todos.json 2>/dev/null || echo '{"files":[],"summary":{"total":0}}' > todos.json
+        
+        rm -f todos_raw.json
     fi
 
     log_success "Scan complete"
@@ -132,7 +183,32 @@ find_new_todos() {
         return 0
     }
 
-    ./todo-tree scan --json . > todos_base.json 2>/dev/null || echo '{"files":[],"summary":{"total":0}}' > todos_base.json
+    ./todo-tree scan --json . > todos_base_raw.json 2>/dev/null || echo '{"files":[],"summary":{"total_count":0}}' > todos_base_raw.json
+    
+    # Transform base JSON to match expected format
+    jq '{
+        files: [
+            .files[] | {
+                path: .path,
+                todos: [
+                    .items[] | {
+                        tag: .tag,
+                        text: .message,
+                        line: .line,
+                        column: .column,
+                        line_content: .line_content,
+                        priority: .priority
+                    }
+                ]
+            }
+        ],
+        summary: {
+            total: .summary.total_count,
+            by_tag: .summary.tag_counts
+        }
+    }' todos_base_raw.json > todos_base.json 2>/dev/null || echo '{"files":[],"summary":{"total":0}}' > todos_base.json
+    
+    rm -f todos_base_raw.json
 
     # Return to head
     git checkout - --quiet 2>/dev/null || true
